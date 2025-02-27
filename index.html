@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spotify App</title>
+    <style>
+        :root {
+            --spotify-green: #1DB954;
+            --dark: #121212;
+            --dark-gray: #212121;
+            --light-gray: #b3b3b3;
+            --white: #FFFFFF;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        body {
+            background-color: var(--dark);
+            color: var(--white);
+            min-height: 100vh;
+        }
+        
+        header {
+            background-color: var(--dark-gray);
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+            text-align: center;
+        }
+        
+        .logo {
+            color: var(--spotify-green);
+            font-size: 2rem;
+            font-weight: bold;
+            margin-bottom: 20px;
+        }
+        
+        #login-container, #logout-container {
+            text-align: center;
+            margin: 100px auto;
+            max-width: 500px;
+        }
+        
+        #app-container {
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+            display: none;
+        }
+        
+        button {
+            background-color: var(--spotify-green);
+            color: var(--white);
+            border: none;
+            padding: 12px 24px;
+            font-size: 1rem;
+            border-radius: 30px;
+            cursor: pointer;
+            transition: background-color 0.3s, transform 0.2s;
+        }
+        
+        button:hover {
+            background-color: #1ed760;
+            transform: scale(1.05);
+        }
+        
+        .btn-secondary {
+            background-color: var(--dark-gray);
+            color: var(--white);
+            border: 1px solid var(--light-gray);
+        }
+        
+        .btn-secondary:hover {
+            background-color: #333;
+        }
+        
+        input[type="text"] {
+            width: 100%;
+            padding: 12px 20px;
+            font-size: 1rem;
+            border-radius: 30px;
+            border: none;
+            background-color: var(--dark-gray);
+            color: var(--white);
+            margin-bottom: 20px;
+        }
+        
+        .search-container {
+            display: flex;
+            margin-bottom: 30px;
+        }
+        
+        .search-container input {
+            flex-grow: 1;
+            margin-right: 10px;
+            margin-bottom: 0;
+        }
+        
+        .tabs {
+            display: flex;
+            margin-bottom: 20px;
+            border-bottom: 1px solid var(--dark-gray);
+        }
+        
+        .tab {
+            background: none;
+            border: none;
+            padding: 12px 24px;
+            font-size: 1rem;
+            cursor: pointer;
+            opacity: 0.7;
+            color: var(--white);
+            border-bottom: 2px solid transparent;
+        }
+        
+        .tab.active {
+            opacity: 1;
+            border-bottom: 2px solid var(--spotify-green);
+        }
+        
+        .search-results, .playlist-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 20px;
+        }
+        
+        .track-card {
+            background-color: var(--dark-gray);
+            border-radius: 8px;
+            overflow: hidden;
+            transition: transform 0.3s;
+        }
+        
+        .track-card:hover {
+            transform: translateY(-5px);
+        }
+        
+        .track-img {
+            width: 100%;
+            aspect-ratio: 1;
+            object-fit: cover;
+        }
+        
+        .track-info {
+            padding: 15px;
+        }
+        
+        .track-title {
+            font-weight: bold;
+            margin-bottom: 5px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        .track-artist {
+            color: var(--light-gray);
+            font-size: 0.9rem;
+            margin-bottom: 15px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        .track-actions {
+            display: flex;
+            justify-content: space-between;
+        }
+        
+        .btn-icon {
+            background: none;
+            border: none;
+            color: var(--white);
+            cursor: pointer;
+            font-size: 1.2rem;
+            padding: 8px;
+            border-radius: 50%;
+            transition: background-color 0.3s;
+        }
+        
+        .btn-icon:hover {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+        
+        .liked {
+            color: var(--spotify-green);
+        }
+        
+        .playlist-creation {
+            background-color: var(--dark-gray);
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            display: none;
+        }
+        
+        .playlist-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .loader {
+            border: 4px solid var(--dark-gray);
+            border-top: 4px solid var(--spotify-green);
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+            display: none;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .notification {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background-color: var(--spotify-green);
+            color: var(--white);
+            padding: 15px 20px;
+            border-radius: 5px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            opacity: 0;
+            transform: translateY(20px);
+            transition: opacity 0.3s, transform 0.3s;
+        }
+        
+        .notification.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .playlist-info {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        #user-info {
+            display: flex;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        #user-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            margin-right: 10px;
+        }
+        
+        #user-name {
+            font-weight: bold;
+        }
+        
+        @media (max-width: 768px) {
+            .search-results, .playlist-container {
+                grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="logo">Spotify Explorer</div>
+    </header>
+    
+    <div id="login-container">
+        <h1>Conecte-se ao Spotify</h1>
+        <p>Pesquise músicas, ouça prévias, crie playlists e dê likes nas suas músicas favoritas.</p>
+        <button id="login-button">Conectar ao Spotify</button>
+    </div>
+    
+    <div id="app-container">
+        <div id="user-info"></div>
+        
+        <div class="tabs">
+            <button class="tab active" data-tab="search">Pesquisar</button>
+            <button class="tab" data-tab="playlist">Minha Playlist</button>
+        </div>
+        
+        <div id="search-tab" class="tab-content active">
+            <div class="search-container">
+                <input type="text" id="search-input" placeholder="Pesquisar músicas...">
+                <button id="search-button">Buscar</button>
+            </div>
+            
+            <div class="loader" id="search-loader"></div>
+            
+            <div class="search-results" id="search-results"></div>
+        </div>
+        
+        <div id="playlist-tab" class="tab-content">
+            <div class="playlist-creation">
+                <div class="playlist-header">
+                    <h2>Criar nova playlist</h2>
+                </div>
+                
+                <div class="playlist-form">
+                    <input type="text" id="playlist-name" placeholder="Nome da playlist">
+                    <input type="text" id="playlist-description" placeholder="Descrição (opcional)">
+                    <button id="create-playlist-button">Criar Playlist</button>
+                </div>
+            </div>
+            
+            <div class="playlist-info" id="playlist-info">
+                <p>Adicione músicas à sua playlist pela pesquisa</p>
+            </div>
+            
+            <div class="loader" id="playlist-loader"></div>
+            
+            <div class="playlist-container" id="playlist-container"></div>
+        </div>
+    </div>
+    
+    <div id="logout-container" style="display: none;">
+        <button id="logout-button" class="btn-secondary">Sair</button>
+    </div>
+    
+    <div class="notification" id="notification"></div>
+    
+    <script>
+        // Configuração da API do Spotify
+        
+        // Substitua com seus próprios valores da API do Spotify
+        const config = {
+            clientId: '2e6eee779b3c4182bde2fb1e269d12ab', // ATENÇÃO: Substitua por seu Client ID
+            redirectUri: window.location.origin + window.location.pathname,
+            authEndpoint: 'https://accounts.spotify.com/authorize',
+            tokenEndpoint: 'https://accounts.spotify.com/api/token',
+            scopes: [
+                'user-read-private',
+                'user-read-email',
+                'user-library-read',
+                'user-library-modify',
+                'playlist-read-private',
+                'playlist-modify-public',
+                'playlist-modify-private'
+            ]
+        };
+        
+        // Estados da aplicação
+        let accessToken = null;
+        let currentUser = null;
+        let playlistTracks = [];
+        let currentPlaylistId = null;
+        let audioElement = null;
+        
+        // Elementos do DOM
+        const loginButton = document.getElementById('login-button');
+        const logoutButton = document.getElementById('logout-button');
+        const loginContainer = document.getElementById('login-container');
+        const logoutContainer = document.getElementById('logout-container');
+        const appContainer = document.getElementById('app-container');
+        const searchInput = document.getElementById('search-input');
+        const searchButton = document.getElementById('search-button');
+        const searchResults = document.getElementById('search-results');
+        const searchLoader = document.getElementById('search-loader');
+        const playlistContainer = document.getElementById('playlist-container');
+        const playlistLoader = document.getElementById('playlist-loader');
+        const createPlaylistButton = document.getElementById('create-playlist-button');
+        const playlistNameInput = document.getElementById('playlist-name');
+        const playlistDescriptionInput = document.getElementById('playlist-description');
+        const playlistInfo = document.getElementById('playlist-info');
+        const userInfoContainer = document.getElementById('user-info');
+        const notification = document.getElementById('notification');
+        const tabs = document.querySelectorAll('.tab');
+        const tabContents = document.querySelectorAll('.tab-content');
+        
+        // Funções auxiliares
+        function generateRandomString(length) {
+            const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+            let text = '';
+            for (let i = 0; i < length; i++) {
+                text += possible.charAt(Math.floor(Math.random() * possible.length));
+            }
+            return text;
+        }
+        
+        function showNotification(message) {
+            notification.textContent = message;
+            notification.classList.add('show');
+            setTimeout(() => {
+                notification.classList.remove('show');
+            }, 3000);
+        }
+        
+        // Inicialização
+        function init() {
+            // Verificar se temos token na URL (redirecionamento pós-login)
+            const params = new URLSearchParams(window.location.hash.substring(1));
+            accessToken = params.get('access_token');
+            
+            if (accessToken) {
+                // Remover o token da URL
+                history.replaceState({}, document.title, window.location.pathname);
+                
+                // Mostrar a aplicação principal
+                handleLogin();
+            }
+            
+            // Configurar os event listeners
+            loginButton.addEventListener('click', initiateLogin);
+            logoutButton.addEventListener('click', logout);
+            searchButton.addEventListener('click', searchTracks);
+            searchInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') searchTracks();
+            });
+            createPlaylistButton.addEventListener('click', createPlaylist);
+            
+            // Event listener para abas
+            tabs.forEach(tab => {
+                tab.addEventListener('click', () => {
+                    const tabId = tab.getAttribute('data-tab');
+                    
+                    // Atualizar tabs ativas
+                    tabs.forEach(t => t.classList.remove('active'));
+                    tab.classList.add('active');
+                    
+                    // Atualizar conteúdo ativo
+                    tabContents.forEach(content => content.classList.remove('active'));
+                    document.getElementById(tabId + '-tab').classList.add('active');
+                });
+            });
+            
+            // Parar a reprodução quando outra começar
+            document.addEventListener('play', function(e) {
+                if (audioElement && audioElement !== e.target) {
+                    audioElement.pause();
+                }
+                audioElement = e.target;
+            }, true);
+        }
+        
+        // Autenticação
+        function initiateLogin() {
+            const state = generateRandomString(16);
+            localStorage.setItem('spotify_auth_state', state);
+            
+            const authUrl = new URL(config.authEndpoint);
+            authUrl.searchParams.append('client_id', config.clientId);
+            authUrl.searchParams.append('response_type', 'token');
+            authUrl.searchParams.append('redirect_uri', config.redirectUri);
+            authUrl.searchParams.append('state', state);
+            authUrl.searchParams.append('scope', config.scopes.join(' '));
+            
+            window.location.href = authUrl.toString();
+        }
+        
+        function handleLogin() {
+            loginContainer.style.display = 'none';
+            appContainer.style.display = 'block';
+            logoutContainer.style.display = 'block';
+            
+            // Buscar informações do usuário
+            fetchUserProfile();
+        }
+        
+        function logout() {
+            accessToken = null;
+            currentUser = null;
+            playlistTracks = [];
+            currentPlaylistId = null;
+            
+            // Limpar a UI
+            searchResults.innerHTML = '';
+            playlistContainer.innerHTML = '';
+            userInfoContainer.innerHTML = '';
+            
+            // Mostrar a tela de login
+            loginContainer.style.display = 'block';
+            appContainer.style.display = 'none';
+            logoutContainer.style.display = 'none';
+        }
+        
+        // Operações da API do Spotify
+        async function fetchUserProfile() {
+            try {
+                const response = await fetch('https://api.spotify.com/v1/me', {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`
+                    }
+                });
+                
+                if (!response.ok) throw new Error('Falha ao buscar perfil');
+                
+                currentUser = await response.json();
+                
+                // Exibir informações do usuário
+                userInfoContainer.innerHTML = `
+                    <img id="user-avatar" src="${currentUser.images[0]?.url || '/api/placeholder/40/40'}" alt="Avatar">
+                    <span id="user-name">${currentUser.display_name}</span>
+                `;
+                
+                // Verificar se o usuário já tem uma playlist
+                checkExistingPlaylist();
+                
+            } catch (error) {
+                console.error('Erro ao buscar perfil do usuário:', error);
+                showNotification('Erro ao carregar perfil do usuário');
+            }
+        }
+        
+        async function checkExistingPlaylist() {
+            try {
+                const response = await fetch(`https://api.spotify.com/v1/me/playlists`, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`
+                    }
+                });
+                
+                if (!response.ok) throw new Error('Falha ao buscar playlists');
+                
+                const data = await response.json();
+                
+                // Procurar por uma playlist chamada "Spotify Explorer"
+                const existingPlaylist = data.items.find(playlist => 
+                    playlist.name === 'Spotify Explorer' && 
+                    playlist.owner.id === currentUser.id
+                );
+                
+                if (existingPlaylist) {
+                    currentPlaylistId = existingPlaylist.id;
+                    document.querySelector('.playlist-creation').style.display = 'none';
+                    playlistInfo.innerHTML = `
+                        <h2>${existingPlaylist.name}</h2>
+                        <p>${existingPlaylist.description || 'Músicas adicionadas do Spotify Explorer'}</p>
+                    `;
+                    
+                    // Carregar músicas da playlist
+                    loadPlaylistTracks();
+                } else {
+                    document.querySelector('.playlist-creation').style.display = 'block';
+                }
+                
+            } catch (error) {
+                console.error('Erro ao verificar playlists existentes:', error);
+            }
+        }
+        
+        async function createPlaylist() {
+            const name = playlistNameInput.value.trim() || 'Spotify Explorer';
+            const description = playlistDescriptionInput.value.trim() || 'Músicas adicionadas do Spotify Explorer';
+            
+            try {
+                playlistLoader.style.display = 'block';
+                
+                const response = await fetch(`https://api.spotify.com/v1/users/${currentUser.id}/playlists`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        name,
+                        description,
+                        public: false
+                    })
+                });
+                
+                if (!response.ok) throw new Error('Falha ao criar playlist');
+                
+                const playlist = await response.json();
+                currentPlaylistId = playlist.id;
+                
+                // Atualizar a UI
+                document.querySelector('.playlist-creation').style.display = 'none';
+                playlistInfo.innerHTML = `
+                    <h2>${playlist.name}</h2>
+                    <p>${playlist.description}</p>
+                `;
+                
+                showNotification('Playlist criada com sucesso!');
+                
+            } catch (error) {
+                console.error('Erro ao criar playlist:', error);
+                showNotification('Erro ao criar playlist');
+            } finally {
+                playlistLoader.style.display = 'none';
+            }
+        }
+        
+        async function searchTracks() {
+            const query = searchInput.value.trim();
+            
+            if (!query) return;
+            
+            try {
+                searchResults.innerHTML = '';
+                searchLoader.style.display = 'block';
+                
+                const response = await fetch(`https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=20`, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`
+                    }
+                });
+                
+                if (!response.ok) throw new Error('Falha na busca');
+                
+                const data = await response.json();
+                
+                if (data.tracks.items.length === 0) {
+                    searchResults.innerHTML = '<p>Nenhuma música encontrada.</p>';
+                    return;
+                }
+                
+                data.tracks.items.forEach(track => {
+                    renderTrackCard(track, searchResults, true);
+                });
+                
+            } catch (error) {
+                console.error('Erro na busca:', error);
+                showNotification('Erro ao buscar músicas');
+            } finally {
+                searchLoader.style.display = 'none';
+            }
+        }
+        
+        async function addToPlaylist(trackId) {
+            if (!currentPlaylistId) {
+                showNotification('Crie uma playlist primeiro!');
+                
+                // Mudar para a aba de playlist
+                tabs[1].click();
+                return;
+            }
+            
+            try {
+                const response = await fetch(`https://api.spotify.com/v1/playlists/${currentPlaylistId}/tracks`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        uris: [`spotify:track:${trackId}`]
+                    })
+                });
+                
+                if (!response.ok) throw new Error('Falha ao adicionar à playlist');
+                
+                showNotification('Música adicionada à playlist!');
+                
+                // Recarregar a playlist
+                loadPlaylistTracks();
+                
+            } catch (error) {
+                console.error('Erro ao adicionar à playlist:', error);
+                showNotification('Erro ao adicionar música');
+            }
+        }
+        
+        async function removeFromPlaylist(trackId) {
+            try {
+                const response = await fetch(`https://api.spotify.com/v1/playlists/${currentPlaylistId}/tracks`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        tracks: [{ uri: `spotify:track:${trackId}` }]
+                    })
+                });
+                
+                if (!response.ok) throw new Error('Falha ao remover da playlist');
+                
+                showNotification('Música removida da playlist');
+                
+                // Recarregar a playlist
+                loadPlaylistTracks();
+                
+            } catch (error) {
+                console.error('Erro ao remover da playlist:', error);
+                showNotification('Erro ao remover música');
+            }
+        }
+        
+        async function toggleLike(trackId, element) {
+            try {
+                // Verificar se a música já está curtida
+                const response = await fetch(`https://api.spotify.com/v1/me/tracks/contains?ids=${trackId}`, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`
+                    }
+                });
+                
+                if (!response.ok) throw new Error('Falha ao verificar curtida');
+                
+                const [isLiked] = await response.json();
+                
+                // Fazer a operação oposta
+                const method = isLiked ? 'DELETE' : 'PUT';
+                const actionResponse = await fetch(`https://api.spotify.com/v1/me/tracks?ids=${trackId}`, {
+                    method,
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`
+                    }
+                });
+                
+                if (!actionResponse.ok) throw new Error('Falha ao curtir/descurtir');
+                
+                // Atualizar a UI
+                element.classList.toggle('liked', !isLiked);
+                element.innerHTML = !isLiked ? '❤️' : '🤍';
+                
+                showNotification(isLiked ? 'Curtida removida' : 'Música curtida!');
+                
+            } catch (error) {
+                console.error('Erro ao curtir/descurtir:', error);
+                showNotification('Erro ao curtir/descurtir música');
+            }
+        }
+        
+        async function checkIfLiked(trackId, element) {
+            try {
+                const response = await fetch(`https://api.spotify.com/v1/me/tracks/contains?ids=${trackId}`, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`
+                    }
+                });
+                
+                if (!response.ok) throw new Error('Falha ao verificar curtida');
+                
+                const [isLiked] = await response.json();
+                
+                // Atualizar a UI
+                element.classList.toggle('liked', isLiked);
+                element.innerHTML = isLiked ? '❤️' : '🤍';
+                
+            } catch (error) {
+                console.error('Erro ao verificar curtida:', error);
+            }
+        }
+        
+        async function loadPlaylistTracks() {
+            if (!currentPlaylistId) return;
+            
+            try {
+                playlistLoader.style.display = 'block';
+                playlistContainer.innerHTML = '';
+                
+                const response = await fetch(`https://api.spotify.com/v1/playlists/${currentPlaylistId}/tracks`, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`
+                    }
+                });
+                
+                if (!response.ok) throw new Error('Falha ao carregar playlist');
+                
+                const data = await response.json();
+                playlistTracks = data.items.map(item => item.track);
+                
+                if (playlistTracks.length === 0) {
+                    playlistContainer.innerHTML = '<p>Nenhuma música na playlist ainda. Adicione músicas pela pesquisa!</p>';
+                    return;
+                }
+                
+                // Renderizar cada música
+                playlistTracks.forEach(track => {
+                    renderTrackCard(track, playlistContainer, false);
+                });
+                
+            } catch (error) {
+                console.error('Erro ao carregar playlist:', error);
+                showNotification('Erro ao carregar playlist');
+            } finally {
+                playlistLoader.style.display = 'none';
+            }
+        }
+        
+        // Funções de renderização
+        function renderTrackCard(track, container, isSearchResult) {
+            const card = document.createElement('div');
+            card.className = 'track-card';
+            
+            const imageUrl = track.album.images[0]?.url || '/api/placeholder/200/200';
+            
+            card.innerHTML = `
+                <img src="${imageUrl}" alt="${track.name}" class="track-img">
+                <div class="track-info">
+                    <div class="track-title">${track.name}</div>
+                    <div class="track-artist">${track.artists.map(a => a.name).join(', ')}</div>
+                    <div class="track-actions">
+                        <button class="btn-icon play-preview" data-preview="${track.preview_url || ''}">
+                            ${track.preview_url ? '▶️' : '🔇'}
+                        </button>
+                        <button class="btn-icon like-button" data-id="${track.id}">🤍</button>
+                        ${isSearchResult ? 
+                            `<button class="btn-icon add-to-playlist" data-id="${track.id}">➕</button>` : 
+                            `<button class="btn-icon remove-from-playlist" data-id="${track.id}">➖</button>`
+                        }
+                    </div>
+                </div>
+            `;
+            
+            container.appendChild(card);
+            
+            // Adicionar event listeners
+            const playButton = card.querySelector('.play-preview');
+            playButton.addEventListener('click', () => {
+                const previewUrl = playButton.getAttribute('data-preview');
+                if (!previewUrl) {
+                    showNotification('Prévia não disponível para esta música');
+                    return;
+                }
+                
+                if (audioElement && !audioElement.paused) {
+                    audioElement.pause();
+                    if (audioElement.src === previewUrl) {
+                        playButton.textContent = '▶️';
+                        return;
+                    }
+                }
+                
+                const audio = new Audio(previewUrl);
+                audio.play();
+                playButton.textContent = '⏸️';
+                
+                audio.addEventListener('ended', () => {
+                    playButton.textContent = '▶️';
+                });
+                
+                audio.addEventListener('pause', () => {
+                    playButton.textContent = '▶️';
+                });
+            });
+            
+            const likeButton = card.querySelector('.like-button');
+            // Verificar se a música já está curtida
+            checkIfLiked(track.id, likeButton);
+            
+            likeButton.addEventListener('click', () => {
+                toggleLike(track.id, likeButton);
+            });
+            
+            if (isSearchResult) {
+                const addButton = card.querySelector('.add-to-playlist');
+                addButton.addEventListener('click', () => {
+                    addToPlaylist(track.id);
+                });
+            } else {
+                const removeButton = card.querySelector('.remove-from-playlist');
+                removeButton.addEventListener('click', () => {
+                    removeFromPlaylist(track.id);
+                });
+            }
+        }
+        
+        // Iniciar a aplicação
+        init();
+    </script>
+</body>
+</html>
