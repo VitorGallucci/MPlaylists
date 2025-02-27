@@ -492,6 +492,14 @@
         
         // Operações da API do Spotify
         async function fetchUserProfile() {
+            console.log('Token sendo usado:', accessToken);
+            // Verificar se o token existe antes de fazer a requisição
+            if (!accessToken) {
+                console.error('Token de acesso não encontrado');
+                showNotification('Erro de autenticação. Por favor, faça login novamente.');
+                logout(); // Força o logout para obter um novo token
+                return;
+            }
             try {
                 const response = await fetch('https://api.spotify.com/v1/me', {
                     headers: {
