@@ -1,10 +1,758 @@
-// Configuração da API do Spotify
+// MPlaylists - Enhanced Implementation
 
+/**
+ * API Client Abstraction
+ * Handles all Spotify API communication
+ */
+class SpotifyClient {
+    constructor(token) {
+        this.token = token;
+        this.baseUrl = 'https://api.spotify.com/v1';
+    }
+    
+    async getUser() {
+        return this.request('/me');
+    }
+    
+    async getUserPlaylists(limit = 50) {
+        return this.request(`/me/playlists?limit=${limit}`);
+    }
+    
+    async getPlaylistTracks(playlistId) {
+        return this.request(`/playlists/${playlistId}/tracks`);
+    }
+    
+    async searchTracks(query, limit = 20) {
+        return this.request(`/search?q=${encodeURIComponent(query)}&type=track&limit=${limit}`);
+    }
+    
+    async createPlaylist(userId, name, description, isPublic = false) {
+        return this.request(`/users/${userId}/playlists`, {
+            method: 'POST',
+            body: JSON.stringify({
+                name,
+                description,
+                public: isPublic
+            })
+        });
+    }
+    
+    async addTrackToPlaylist(playlistId, trackUri) {
+        return this.request(`/playlists/${playlistId}/tracks`, {
+            method: 'POST',
+            body: JSON.stringify({
+                uris: [trackUri]
+            })
+        });
+    }
+    
+    async removeTrackFromPlaylist(playlistId, trackUri) {
+        return this.request(`/playlists/${playlistId}/tracks`, {
+            method: 'DELETE',
+            body: JSON.stringify({
+                tracks: [{ uri: trackUri }]
+            })
+        });
+    }
+    
+    async checkTracksLiked(trackIds) {
+        return this.request(`/me/tracks/contains?ids=${trackIds.join(',')}`);
+    }
+    
+    async toggleLike(trackId, isLiked) {
+        return this.request(`/me/tracks?ids=${trackId}`, {
+            method: isLiked ? 'DELETE' : 'PUT'
+        });
+    }
+    
+    async request(endpoint, options = {}) {
+        try {
+            const response = await fetch(`${this.baseUrl}${endpoint}`, {
+                ...options,
+                headers: {
+                    'Authorization': `Bearer ${this.token}`,
+                    'Content-Type': 'application/json',
+                    ...options.headers
+                }
+            });
+            
+            if (response.status === 401) {
+                // Token expired, trigger refresh
+                throw new Error('TOKEN_EXPIRED');
+            }
+            
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error?.message || `API Error: ${response.status}`);
+            }
+            
+            return response.json();
+        } catch (error) {
+            if (error.message === 'TOKEN_EXPIRED') {
+                // Handle token expiration
+                app.handleTokenExpired();
+            }
+            throw error;
+        }
+    }
+}
+
+/**
+ * Implements a simple state management pattern
+ */
+class AppState {
+    constructor() {
+        this.accessToken = null;
+        this.currentUser = null;
+        this.playlistTracks = [];
+        this.currentPlaylistId = null;
+        this.audioElement = null;
+        this.playingButtonElement = null;
+        this.client = null;
+    }
+    
+    setToken(token) {
+        this.accessToken = token;
+        this.client = new SpotifyClient(token);
+    }
+    
+    clearToken() {
+        this.accessToken = null;
+        this.client = null;
+    }
+    
+    setUser(user) {
+        this.currentUser = user;
+    }
+    
+    setCurrentPlaylist(playlistId) {
+        this.currentPlaylistId = playlistId;
+    }
+    
+    setPlaylistTracks(tracks) {
+        this.playlistTracks = tracks;
+    }
+    
+    reset() {
+        this.accessToken = null;
+        this.currentUser = null;
+        this.playlistTracks = [];
+        this.currentPlaylistId = null;
+        this.audioElement = null;
+        this.playingButtonElement = null;
+        this.client = null;
+    }
+}
+
+/**
+ * UI Controller - manages DOM interactions
+ */
+class UIController {
+    constructor(app) {
+        this.app = app;
+        this.state = app.state;
+        
+        // Cache DOM elements
+        this.elements = {
+            loginButton: document.getElementById('login-button'),
+            logoutButton: document.getElementById('logout-button'),
+            loginContainer: document.getElementById('login-container'),
+            logoutContainer: document.getElementById('logout-container'),
+            appContainer: document.getElementById('app-container'),
+            searchInput: document.getElementById('search-input'),
+            searchButton: document.getElementById('search-button'),
+            searchResults: document.getElementById('search-results'),
+            searchLoader: document.getElementById('search-loader'),
+            playlistContainer: document.getElementById('playlist-container'),
+            playlistLoader: document.getElementById('playlist-loader'),
+            createPlaylistButton: document.getElementById('create-playlist-button'),
+            playlistNameInput: document.getElementById('playlist-name'),
+            playlistDescriptionInput: document.getElementById('playlist-description'),
+            userInfoContainer: document.getElementById('user-info'),
+            notification: document.getElementById('notification'),
+            tabs: document.querySelectorAll('.tab'),
+            tabContents: document.querySelectorAll('.tab-content'),
+            playlistsListContainer: document.getElementById('playlists-list'),
+            playlistTracksSection: document.getElementById('playlist-tracks-section'),
+            currentPlaylistInfo: document.getElementById('current-playlist-info')
+        };
+        
+        // Set up event listeners
+        this.setupEventListeners();
+    }
+    
+    setupEventListeners() {
+        const { elements, app } = this;
+        
+        elements.loginButton.addEventListener('click', () => app.initiateLogin());
+        elements.logoutButton.addEventListener('click', () => app.logout());
+        elements.searchButton.addEventListener('click', () => app.searchTracks());
+        elements.searchInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') app.searchTracks();
+        });
+        elements.createPlaylistButton.addEventListener('click', () => app.createPlaylist());
+        
+        // Implement debounced search
+        elements.searchInput.addEventListener('input', this.debounce(() => {
+            if (elements.searchInput.value.trim().length > 2) {
+                app.searchTracks();
+            }
+        }, 300));
+        
+        // Set up tab navigation
+        elements.tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                const tabId = tab.getAttribute('data-tab');
+                
+                // Update active tabs
+                elements.tabs.forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                
+                // Update active content
+                elements.tabContents.forEach(content => content.classList.remove('active'));
+                document.getElementById(tabId + '-tab').classList.add('active');
+                
+                // If playlist tab selected, reload playlists
+                if (tabId === 'playlist' && this.state.accessToken) {
+                    app.loadUserPlaylists();
+                    document.querySelector('.playlist-creation').style.display = 'block';
+                }
+            });
+        });
+    }
+    
+    showLoggedInView() {
+        const { elements } = this;
+        elements.loginContainer.style.display = 'none';
+        elements.appContainer.style.display = 'block';
+        elements.logoutContainer.style.display = 'block';
+    }
+    
+    showLoggedOutView() {
+        const { elements } = this;
+        elements.loginContainer.style.display = 'block';
+        elements.appContainer.style.display = 'none';
+        elements.logoutContainer.style.display = 'none';
+        
+        // Clear all content areas
+        elements.searchResults.innerHTML = '';
+        elements.playlistContainer.innerHTML = '';
+        elements.userInfoContainer.innerHTML = '';
+        elements.playlistsListContainer.innerHTML = '';
+        elements.currentPlaylistInfo.innerHTML = '';
+    }
+    
+    updateUserInfo(user) {
+        const { elements } = this;
+        
+        // Using optional chaining and fallback for image URL
+        const imageUrl = user.images[0]?.url || './assets/default-user.png';
+        
+        elements.userInfoContainer.innerHTML = `
+            <img id="user-avatar" src="${imageUrl}" alt="Avatar" onerror="this.src='./assets/default-user.png';">
+            <span id="user-name">${user.display_name}</span>
+        `;
+    }
+    
+    updateCurrentPlaylistInfo(playlist) {
+        const { elements } = this;
+        
+        // Using optional chaining and fallback for image URL
+        const imageUrl = playlist.images[0]?.url || './assets/default-album.png';
+        
+        elements.currentPlaylistInfo.innerHTML = `
+            <div class="current-playlist-header">
+                <img src="${imageUrl}" alt="${playlist.name}" class="current-playlist-img" onerror="this.src='./assets/default-album.png';">
+                <div>
+                    <h2>${playlist.name}</h2>
+                    <p>${playlist.description || 'Sem descrição'}</p>
+                    <p class="owner">Por: ${playlist.owner.display_name}</p>
+                    <p>${playlist.tracks.total} músicas</p>
+                </div>
+            </div>
+        `;
+        
+        // Show the playlist tracks section
+        elements.playlistTracksSection.style.display = 'block';
+    }
+    
+    renderPlaylists(playlists) {
+        const { elements, app } = this;
+        elements.playlistsListContainer.innerHTML = '';
+        
+        if (playlists.length === 0) {
+            elements.playlistsListContainer.innerHTML = '<p>Você não tem nenhuma playlist ainda.</p>';
+            document.querySelector('.playlist-creation').style.display = 'block';
+            return;
+        }
+        
+        playlists.forEach(playlist => {
+            const playlistElement = document.createElement('div');
+            playlistElement.className = 'playlist-item';
+            
+            // Using optional chaining and fallback for image URL
+            const imageUrl = playlist.images[0]?.url || './assets/default-album.png';
+            
+            playlistElement.innerHTML = `
+                <div class="playlist-item-content">
+                    <img src="${imageUrl}" alt="${playlist.name}" class="playlist-thumb" onerror="this.src='./assets/default-album.png';">
+                    <div class="playlist-details">
+                        <div class="playlist-name">${playlist.name}</div>
+                        <div class="playlist-track-count">${playlist.tracks.total} músicas</div>
+                    </div>
+                </div>
+                <button class="btn-select-playlist" data-id="${playlist.id}">Selecionar</button>
+            `;
+            
+            elements.playlistsListContainer.appendChild(playlistElement);
+            
+            // Add event listener for the select button
+            const selectButton = playlistElement.querySelector('.btn-select-playlist');
+            selectButton.addEventListener('click', () => {
+                app.selectPlaylist(playlist.id, playlist);
+            });
+        });
+    }
+    
+    renderTrackResults(tracks, isSearchResult = true) {
+        const { elements } = this;
+        const container = isSearchResult ? elements.searchResults : elements.playlistContainer;
+        
+        container.innerHTML = '';
+        
+        if (tracks.length === 0) {
+            container.innerHTML = `<p>${isSearchResult ? 'Nenhuma música encontrada.' : 'Nenhuma música na playlist ainda. Adicione músicas pela pesquisa!'}</p>`;
+            return;
+        }
+        
+        tracks.forEach(track => {
+            this.renderTrackCard(track, container, isSearchResult);
+        });
+    }
+    
+    renderTrackCard(track, container, isSearchResult) {
+        const { app } = this;
+        const card = document.createElement('div');
+        card.className = 'track-card';
+        
+        // Check if preview exists
+        const hasPreview = track.preview_url && track.preview_url !== "null" && track.preview_url !== "";
+        
+        // Using optional chaining and fallback for image URL
+        const imageUrl = track.album.images[0]?.url || './assets/default-album.png';
+        
+        card.innerHTML = `
+            <img src="${imageUrl}" alt="${track.name}" class="track-img" onerror="this.src='./assets/default-album.png';">
+            <div class="track-info">
+                <div class="track-title">${track.name}</div>
+                <div class="track-artist">${track.artists.map(a => a.name).join(', ')}</div>
+                <div class="track-actions">
+                    <button class="btn-icon play-preview" data-preview="${track.preview_url || ''}">
+                        ${hasPreview ? '▶️' : '🔇'}
+                    </button>
+                    <button class="btn-icon like-button" data-id="${track.id}">🤍</button>
+                    ${isSearchResult ? 
+                        `<button class="btn-icon add-to-playlist" data-id="${track.id}">➕</button>` : 
+                        `<button class="btn-icon remove-from-playlist" data-id="${track.id}">➖</button>`
+                    }
+                </div>
+            </div>
+        `;
+        
+        container.appendChild(card);
+        
+        // Add event listeners
+        const playButton = card.querySelector('.play-preview');
+        playButton.addEventListener('click', () => {
+            const previewUrl = playButton.getAttribute('data-preview');
+            app.handlePlayPreview(playButton, previewUrl);
+        });
+        
+        const likeButton = card.querySelector('.like-button');
+        // Check if track is already liked
+        app.checkIfLiked(track.id, likeButton);
+        
+        likeButton.addEventListener('click', () => {
+            app.toggleLike(track.id, likeButton);
+        });
+        
+        if (isSearchResult) {
+            const addButton = card.querySelector('.add-to-playlist');
+            addButton.addEventListener('click', () => {
+                app.addToPlaylist(track.id);
+            });
+        } else {
+            const removeButton = card.querySelector('.remove-from-playlist');
+            removeButton.addEventListener('click', () => {
+                app.removeFromPlaylist(track.id);
+            });
+        }
+    }
+    
+    showLoader(loaderName, show = true) {
+        if (this.elements[loaderName]) {
+            this.elements[loaderName].style.display = show ? 'block' : 'none';
+        }
+    }
+    
+    showNotification(message) {
+        const { notification } = this.elements;
+        notification.textContent = message;
+        notification.classList.add('show');
+        setTimeout(() => {
+            notification.classList.remove('show');
+        }, 3000);
+    }
+    
+    // Utility function - debounce implementation
+    debounce(func, delay) {
+        let timer;
+        return function(...args) {
+            clearTimeout(timer);
+            timer = setTimeout(() => func.apply(this, args), delay);
+        };
+    }
+}
+
+/**
+ * Main Application Controller
+ */
+class App {
+    constructor() {
+        this.state = new AppState();
+        this.ui = new UIController(this);
+        
+        // Initialize the application
+        this.init();
+    }
+    
+    init() {
+        // Check if we have a token in the URL (redirect after login)
+        const params = new URLSearchParams(window.location.hash.substring(1));
+        const accessToken = params.get('access_token');
+        
+        if (accessToken) {
+            // Remove token from URL
+            history.replaceState({}, document.title, window.location.pathname);
+            
+            // Set token and initialize API client
+            this.state.setToken(accessToken);
+            
+            // Show the main application
+            this.handleLogin();
+        }
+    }
+    
+    // Authentication methods
+    initiateLogin() {
+        const state = this.generateRandomString(16);
+        localStorage.setItem('spotify_auth_state', state);
+        
+        const authUrl = new URL(config.authEndpoint);
+        authUrl.searchParams.append('client_id', config.clientId);
+        authUrl.searchParams.append('response_type', 'token');
+        authUrl.searchParams.append('redirect_uri', config.redirectUri);
+        authUrl.searchParams.append('state', state);
+        authUrl.searchParams.append('scope', config.scopes.join(' '));
+        
+        window.location.href = authUrl.toString();
+    }
+    
+    handleLogin() {
+        this.ui.showLoggedInView();
+        
+        // Fetch user profile
+        this.fetchUserProfile();
+    }
+    
+    logout() {
+        this.state.reset();
+        this.ui.showLoggedOutView();
+    }
+    
+    handleTokenExpired() {
+        this.ui.showNotification('Sessão expirada. Por favor, faça login novamente.');
+        this.logout();
+    }
+    
+    // API operations
+    async fetchUserProfile() {
+        try {
+            if (!this.state.client) {
+                throw new Error('Cliente API não inicializado');
+            }
+            
+            const userData = await this.state.client.getUser();
+            this.state.setUser(userData);
+            
+            // Display user information
+            this.ui.updateUserInfo(userData);
+            
+            // Load user playlists
+            this.loadUserPlaylists();
+            
+        } catch (error) {
+            console.error('Erro ao buscar perfil do usuário:', error);
+            this.ui.showNotification('Erro ao carregar perfil do usuário');
+        }
+    }
+    
+    async loadUserPlaylists() {
+        try {
+            this.ui.showLoader('playlistLoader', true);
+            
+            const data = await this.state.client.getUserPlaylists();
+            
+            // Update UI
+            this.ui.renderPlaylists(data.items);
+            
+            // Make sure playlist creation section is visible
+            document.querySelector('.playlist-creation').style.display = 'block';
+            
+        } catch (error) {
+            console.error('Erro ao carregar playlists:', error);
+            this.ui.showNotification('Erro ao carregar suas playlists');
+        } finally {
+            this.ui.showLoader('playlistLoader', false);
+        }
+    }
+    
+    selectPlaylist(playlistId, playlist) {
+        this.state.setCurrentPlaylist(playlistId);
+        this.ui.updateCurrentPlaylistInfo(playlist);
+        this.loadPlaylistTracks();
+    }
+    
+    async loadPlaylistTracks() {
+        const { currentPlaylistId } = this.state;
+        if (!currentPlaylistId) return;
+        
+        try {
+            this.ui.showLoader('playlistLoader', true);
+            
+            const data = await this.state.client.getPlaylistTracks(currentPlaylistId);
+            const tracks = data.items.map(item => item.track);
+            this.state.setPlaylistTracks(tracks);
+            
+            // Render tracks
+            this.ui.renderTrackResults(tracks, false);
+            
+        } catch (error) {
+            console.error('Erro ao carregar playlist:', error);
+            this.ui.showNotification('Erro ao carregar playlist');
+        } finally {
+            this.ui.showLoader('playlistLoader', false);
+        }
+    }
+    
+    async searchTracks() {
+        const query = this.ui.elements.searchInput.value.trim();
+        if (!query) return;
+        
+        try {
+            this.ui.showLoader('searchLoader', true);
+            
+            const data = await this.state.client.searchTracks(query);
+            
+            // Render search results
+            this.ui.renderTrackResults(data.tracks.items, true);
+            
+        } catch (error) {
+            console.error('Erro na busca:', error);
+            this.ui.showNotification('Erro ao buscar músicas');
+        } finally {
+            this.ui.showLoader('searchLoader', false);
+        }
+    }
+    
+    async createPlaylist() {
+        const name = this.ui.elements.playlistNameInput.value.trim() || 'Spotify Explorer';
+        const description = this.ui.elements.playlistDescriptionInput.value.trim() || 'Músicas adicionadas do Spotify Explorer';
+        
+        try {
+            this.ui.showLoader('playlistLoader', true);
+            
+            const playlist = await this.state.client.createPlaylist(
+                this.state.currentUser.id,
+                name,
+                description
+            );
+            
+            this.state.setCurrentPlaylist(playlist.id);
+            
+            // Update UI
+            this.ui.updateCurrentPlaylistInfo(playlist);
+            
+            // Clear form fields
+            this.ui.elements.playlistNameInput.value = '';
+            this.ui.elements.playlistDescriptionInput.value = '';
+            
+            this.ui.showNotification('Playlist criada com sucesso!');
+            
+            // Reload playlists list
+            this.loadUserPlaylists();
+            
+        } catch (error) {
+            console.error('Erro ao criar playlist:', error);
+            this.ui.showNotification('Erro ao criar playlist');
+        } finally {
+            this.ui.showLoader('playlistLoader', false);
+        }
+    }
+    
+    async addToPlaylist(trackId) {
+        if (!this.state.currentPlaylistId) {
+            this.ui.showNotification('Crie uma playlist primeiro!');
+            
+            // Switch to playlist tab
+            this.ui.elements.tabs[1].click();
+            return;
+        }
+        
+        try {
+            await this.state.client.addTrackToPlaylist(
+                this.state.currentPlaylistId,
+                `spotify:track:${trackId}`
+            );
+            
+            this.ui.showNotification('Música adicionada à playlist!');
+            
+            // Reload playlist
+            this.loadPlaylistTracks();
+            
+        } catch (error) {
+            console.error('Erro ao adicionar à playlist:', error);
+            this.ui.showNotification('Erro ao adicionar música');
+        }
+    }
+    
+    async removeFromPlaylist(trackId) {
+        try {
+            await this.state.client.removeTrackFromPlaylist(
+                this.state.currentPlaylistId,
+                `spotify:track:${trackId}`
+            );
+            
+            this.ui.showNotification('Música removida da playlist');
+            
+            // Reload playlist
+            this.loadPlaylistTracks();
+            
+        } catch (error) {
+            console.error('Erro ao remover da playlist:', error);
+            this.ui.showNotification('Erro ao remover música');
+        }
+    }
+    
+    async toggleLike(trackId, element) {
+        try {
+            // Check if track is already liked
+            const [isLiked] = await this.state.client.checkTracksLiked([trackId]);
+            
+            // Perform the opposite action
+            await this.state.client.toggleLike(trackId, isLiked);
+            
+            // Update UI
+            element.classList.toggle('liked', !isLiked);
+            element.innerHTML = !isLiked ? '❤️' : '🤍';
+            
+            this.ui.showNotification(isLiked ? 'Curtida removida' : 'Música curtida!');
+            
+        } catch (error) {
+            console.error('Erro ao curtir/descurtir:', error);
+            this.ui.showNotification('Erro ao curtir/descurtir música');
+        }
+    }
+    
+    async checkIfLiked(trackId, element) {
+        try {
+            const [isLiked] = await this.state.client.checkTracksLiked([trackId]);
+            
+            // Update UI
+            element.classList.toggle('liked', isLiked);
+            element.innerHTML = isLiked ? '❤️' : '🤍';
+            
+        } catch (error) {
+            console.error('Erro ao verificar curtida:', error);
+        }
+    }
+    
+    handlePlayPreview(button, previewUrl) {
+        // If no preview URL available
+        if (!previewUrl || previewUrl === "null" || previewUrl === "") {
+            this.ui.showNotification('Prévia não disponível para esta música');
+            return;
+        }
+        
+        // If there's already audio playing
+        if (this.state.audioElement) {
+            // Pause current audio
+            this.state.audioElement.pause();
+            
+            // Reset button that was playing
+            if (this.state.playingButtonElement) {
+                this.state.playingButtonElement.textContent = '▶️';
+            }
+            
+            // If it's the same button that was already playing, just stop
+            if (this.state.playingButtonElement === button) {
+                this.state.playingButtonElement = null;
+                this.state.audioElement = null;
+                return;
+            }
+        }
+        
+        // Create new audio element
+        const audio = new Audio(previewUrl);
+        this.state.audioElement = audio;
+        
+        // Play audio
+        audio.play()
+            .then(() => {
+                // Update current button after starting to play
+                button.textContent = '⏸️';
+                this.state.playingButtonElement = button;
+            })
+            .catch(error => {
+                console.error('Erro ao reproduzir áudio:', error);
+                button.textContent = '▶️';
+                this.ui.showNotification('Erro ao reproduzir prévia. Verifique se o bloqueador de pop-ups está desativado.');
+                this.state.audioElement = null;
+            });
+        
+        // When finished playing
+        audio.addEventListener('ended', () => {
+            if (this.state.playingButtonElement) {
+                this.state.playingButtonElement.textContent = '▶️';
+                this.state.playingButtonElement = null;
+            }
+            this.state.audioElement = null;
+        });
+        
+        // When paused
+        audio.addEventListener('pause', () => {
+            if (this.state.playingButtonElement) {
+                this.state.playingButtonElement.textContent = '▶️';
+            }
+        });
+    }
+    
+    // Utility methods
+    generateRandomString(length) {
+        const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+        let text = '';
+        for (let i = 0; i < length; i++) {
+            text += possible.charAt(Math.floor(Math.random() * possible.length));
+        }
+        return text;
+    }
+}
+
+// Configuration
 const config = {
     clientId: 'a22bb93486c34ad9b5eff33bbc2c9523', 
     redirectUri: window.location.origin + window.location.pathname,
     authEndpoint: 'https://accounts.spotify.com/authorize',
-    tokenEndpoint: 'https://accounts.spotify.com/api/token',
     scopes: [
         'user-read-private',
         'user-read-email',
@@ -16,631 +764,5 @@ const config = {
     ]
 };
 
-// Estados da aplicação
-let accessToken = null;
-let currentUser = null;
-let playlistTracks = [];
-let currentPlaylistId = null;
-let audioElement = null;
-let playingButtonElement = null;
-
-// Elementos do DOM
-const loginButton = document.getElementById('login-button');
-const logoutButton = document.getElementById('logout-button');
-const loginContainer = document.getElementById('login-container');
-const logoutContainer = document.getElementById('logout-container');
-const appContainer = document.getElementById('app-container');
-const searchInput = document.getElementById('search-input');
-const searchButton = document.getElementById('search-button');
-const searchResults = document.getElementById('search-results');
-const searchLoader = document.getElementById('search-loader');
-const playlistContainer = document.getElementById('playlist-container');
-const playlistLoader = document.getElementById('playlist-loader');
-const createPlaylistButton = document.getElementById('create-playlist-button');
-const playlistNameInput = document.getElementById('playlist-name');
-const playlistDescriptionInput = document.getElementById('playlist-description');
-const playlistInfo = document.getElementById('playlist-info');
-const userInfoContainer = document.getElementById('user-info');
-const notification = document.getElementById('notification');
-const tabs = document.querySelectorAll('.tab');
-const tabContents = document.querySelectorAll('.tab-content');
-
-// Funções auxiliares
-function generateRandomString(length) {
-    const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    let text = '';
-    for (let i = 0; i < length; i++) {
-        text += possible.charAt(Math.floor(Math.random() * possible.length));
-    }
-    return text;
-}
-
-function showNotification(message) {
-    notification.textContent = message;
-    notification.classList.add('show');
-    setTimeout(() => {
-        notification.classList.remove('show');
-    }, 3000);
-}
-
-// Inicialização
-function init() {
-    // Verificar se temos token na URL (redirecionamento pós-login)
-    const params = new URLSearchParams(window.location.hash.substring(1));
-    accessToken = params.get('access_token');
-    
-    if (accessToken) {
-        // Remover o token da URL
-        history.replaceState({}, document.title, window.location.pathname);
-        
-        // Mostrar a aplicação principal
-        handleLogin();
-    }
-    
-    // Configurar os event listeners
-    loginButton.addEventListener('click', initiateLogin);
-    logoutButton.addEventListener('click', logout);
-    searchButton.addEventListener('click', searchTracks);
-    searchInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') searchTracks();
-    });
-    createPlaylistButton.addEventListener('click', createPlaylist);
-    
-    // Event listener para abas
-    tabs.forEach(tab => {
-        tab.addEventListener('click', () => {
-            const tabId = tab.getAttribute('data-tab');
-            
-            // Atualizar tabs ativas
-            tabs.forEach(t => t.classList.remove('active'));
-            tab.classList.add('active');
-            
-            // Atualizar conteúdo ativo
-            tabContents.forEach(content => content.classList.remove('active'));
-            document.getElementById(tabId + '-tab').classList.add('active');
-            
-            // Se a aba de playlist for selecionada, recarregar playlists
-            if (tabId === 'playlist' && accessToken) {
-                loadUserPlaylists();
-                // Garantir que a seção de criação esteja visível
-                document.querySelector('.playlist-creation').style.display = 'block';
-            }
-        });
-    });
-}
-
-// Autenticação
-function initiateLogin() {
-    const state = generateRandomString(16);
-    localStorage.setItem('spotify_auth_state', state);
-    
-    const authUrl = new URL(config.authEndpoint);
-    authUrl.searchParams.append('client_id', config.clientId);
-    authUrl.searchParams.append('response_type', 'token');
-    authUrl.searchParams.append('redirect_uri', config.redirectUri);
-    authUrl.searchParams.append('state', state);
-    authUrl.searchParams.append('scope', config.scopes.join(' '));
-    
-    window.location.href = authUrl.toString();
-}
-
-function handleLogin() {
-    loginContainer.style.display = 'none';
-    appContainer.style.display = 'block';
-    logoutContainer.style.display = 'block';
-    
-    // Buscar informações do usuário
-    fetchUserProfile();
-}
-
-function logout() {
-    accessToken = null;
-    currentUser = null;
-    playlistTracks = [];
-    currentPlaylistId = null;
-    
-    // Limpar a UI
-    searchResults.innerHTML = '';
-    playlistContainer.innerHTML = '';
-    userInfoContainer.innerHTML = '';
-    
-    // Mostrar a tela de login
-    loginContainer.style.display = 'block';
-    appContainer.style.display = 'none';
-    logoutContainer.style.display = 'none';
-}
-
-// Operações da API do Spotify
-async function fetchUserProfile() {
-    console.log('Token sendo usado:', accessToken);
-    // Verificar se o token existe antes de fazer a requisição
-    if (!accessToken) {
-        console.error('Token de acesso não encontrado');
-        showNotification('Erro de autenticação. Por favor, faça login novamente.');
-        logout(); // Força o logout para obter um novo token
-        return;
-    }
-    try {
-        const response = await fetch('https://api.spotify.com/v1/me', {
-            headers: {
-                'Authorization': `Bearer ${accessToken}`
-            }
-        });
-        
-        if (!response.ok) throw new Error('Falha ao buscar perfil');
-        
-        currentUser = await response.json();
-        
-        // Exibir informações do usuário
-        userInfoContainer.innerHTML = `
-            <img id="user-avatar" src="${currentUser.images[0]?.url || '/api/placeholder/40/40'}" alt="Avatar">
-            <span id="user-name">${currentUser.display_name}</span>
-        `;
-        
-        // Verificar se o usuário já tem uma playlist
-        checkExistingPlaylist();
-        
-    } catch (error) {
-        console.error('Erro ao buscar perfil do usuário:', error);
-        showNotification('Erro ao carregar perfil do usuário');
-    }
-}
-
-async function loadUserPlaylists() {
-    try {
-        // Verificar se o token existe
-        if (!accessToken) {
-            console.error('Token de acesso não encontrado');
-            showNotification('Erro de autenticação. Por favor, faça login novamente.');
-            logout();
-            return;
-        }
-        
-        playlistLoader.style.display = 'block';
-        
-        const response = await fetch('https://api.spotify.com/v1/me/playlists?limit=50', {
-            headers: {
-                'Authorization': `Bearer ${accessToken}`
-            }
-        });
-        
-        if (!response.ok) {
-            if (response.status === 401) {
-                // Token expirado
-                showNotification('Sessão expirada. Por favor, faça login novamente.');
-                logout();
-                return;
-            }
-            throw new Error('Falha ao carregar playlists');
-        }
-        
-        const data = await response.json();
-        
-        // Limpar a área de exibição de playlists
-        const playlistsListContainer = document.getElementById('playlists-list');
-        playlistsListContainer.innerHTML = '';
-        
-        if (data.items.length === 0) {
-            playlistsListContainer.innerHTML = '<p>Você não tem nenhuma playlist ainda.</p>';
-            // Garantir que a seção de criação esteja visível
-            document.querySelector('.playlist-creation').style.display = 'block';
-            return;
-        }
-        
-        // Criar elemento para cada playlist
-        data.items.forEach(playlist => {
-            const playlistElement = document.createElement('div');
-            playlistElement.className = 'playlist-item';
-            
-            const playlistImage = playlist.images[0]?.url || '/api/placeholder/60/60';
-            
-            playlistElement.innerHTML = `
-                <div class="playlist-item-content">
-                    <img src="${playlistImage}" alt="${playlist.name}" class="playlist-thumb">
-                    <div class="playlist-details">
-                        <div class="playlist-name">${playlist.name}</div>
-                        <div class="playlist-track-count">${playlist.tracks.total} músicas</div>
-                    </div>
-                </div>
-                <button class="btn-select-playlist" data-id="${playlist.id}">Selecionar</button>
-            `;
-            
-            playlistsListContainer.appendChild(playlistElement);
-            
-            // Adicionar event listener para o botão de selecionar
-            const selectButton = playlistElement.querySelector('.btn-select-playlist');
-            selectButton.addEventListener('click', () => {
-                currentPlaylistId = playlist.id;
-                updateCurrentPlaylistInfo(playlist);
-                loadPlaylistTracks();
-            });
-        });
-        
-    } catch (error) {
-        console.error('Erro ao carregar playlists:', error);
-        showNotification('Erro ao carregar suas playlists');
-    } finally {
-        playlistLoader.style.display = 'none';
-    }
-}
-
-function updateCurrentPlaylistInfo(playlist) {
-    const playlistInfoContainer = document.getElementById('current-playlist-info');
-    playlistInfoContainer.innerHTML = `
-        <div class="current-playlist-header">
-            <img src="${playlist.images[0]?.url || '/api/placeholder/120/120'}" alt="${playlist.name}" class="current-playlist-img">
-            <div>
-                <h2>${playlist.name}</h2>
-                <p>${playlist.description || 'Sem descrição'}</p>
-                <p class="owner">Por: ${playlist.owner.display_name}</p>
-                <p>${playlist.tracks.total} músicas</p>
-            </div>
-        </div>
-    `;
-    
-    // Mostrar a seção de músicas da playlist
-    document.getElementById('playlist-tracks-section').style.display = 'block';
-}
-
-async function checkExistingPlaylist() {
-    // Carregar todas as playlists do usuário
-    loadUserPlaylists();
-    
-    // Exibir a seção de criação de playlist
-    document.querySelector('.playlist-creation').style.display = 'block';
-}
-
-async function createPlaylist() {
-    const name = playlistNameInput.value.trim() || 'Spotify Explorer';
-    const description = playlistDescriptionInput.value.trim() || 'Músicas adicionadas do Spotify Explorer';
-    
-    try {
-        playlistLoader.style.display = 'block';
-        
-        const response = await fetch(`https://api.spotify.com/v1/users/${currentUser.id}/playlists`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${accessToken}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                name,
-                description,
-                public: false
-            })
-        });
-        
-        if (!response.ok) throw new Error('Falha ao criar playlist');
-        
-        const playlist = await response.json();
-        currentPlaylistId = playlist.id;
-        
-        // Atualizar a UI
-        updateCurrentPlaylistInfo(playlist);
-        
-        // Limpar os campos do formulário
-        playlistNameInput.value = '';
-        playlistDescriptionInput.value = '';
-        
-        showNotification('Playlist criada com sucesso!');
-        
-        // Recarregar a lista de playlists
-        loadUserPlaylists();
-        
-    } catch (error) {
-        console.error('Erro ao criar playlist:', error);
-        showNotification('Erro ao criar playlist');
-    } finally {
-        playlistLoader.style.display = 'none';
-    }
-}
-
-async function searchTracks() {
-    const query = searchInput.value.trim();
-    
-    if (!query) return;
-    
-    try {
-        searchResults.innerHTML = '';
-        searchLoader.style.display = 'block';
-        
-        const response = await fetch(`https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=20`, {
-            headers: {
-                'Authorization': `Bearer ${accessToken}`
-            }
-        });
-        
-        if (!response.ok) throw new Error('Falha na busca');
-        
-        const data = await response.json();
-        
-        if (data.tracks.items.length === 0) {
-            searchResults.innerHTML = '<p>Nenhuma música encontrada.</p>';
-            return;
-        }
-        
-        data.tracks.items.forEach(track => {
-            renderTrackCard(track, searchResults, true);
-        });
-        
-    } catch (error) {
-        console.error('Erro na busca:', error);
-        showNotification('Erro ao buscar músicas');
-    } finally {
-        searchLoader.style.display = 'none';
-    }
-}
-
-async function addToPlaylist(trackId) {
-    if (!currentPlaylistId) {
-        showNotification('Crie uma playlist primeiro!');
-        
-        // Mudar para a aba de playlist
-        tabs[1].click();
-        return;
-    }
-    
-    try {
-        const response = await fetch(`https://api.spotify.com/v1/playlists/${currentPlaylistId}/tracks`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${accessToken}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                uris: [`spotify:track:${trackId}`]
-            })
-        });
-        
-        if (!response.ok) throw new Error('Falha ao adicionar à playlist');
-        
-        showNotification('Música adicionada à playlist!');
-        
-        // Recarregar a playlist
-        loadPlaylistTracks();
-        
-    } catch (error) {
-        console.error('Erro ao adicionar à playlist:', error);
-        showNotification('Erro ao adicionar música');
-    }
-}
-
-async function removeFromPlaylist(trackId) {
-    try {
-        const response = await fetch(`https://api.spotify.com/v1/playlists/${currentPlaylistId}/tracks`, {
-            method: 'DELETE',
-            headers: {
-                'Authorization': `Bearer ${accessToken}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                tracks: [{ uri: `spotify:track:${trackId}` }]
-            })
-        });
-        
-        if (!response.ok) throw new Error('Falha ao remover da playlist');
-        
-        showNotification('Música removida da playlist');
-        
-        // Recarregar a playlist
-        loadPlaylistTracks();
-        
-    } catch (error) {
-        console.error('Erro ao remover da playlist:', error);
-        showNotification('Erro ao remover música');
-    }
-}
-
-async function toggleLike(trackId, element) {
-    try {
-        // Verificar se a música já está curtida
-        const response = await fetch(`https://api.spotify.com/v1/me/tracks/contains?ids=${trackId}`, {
-            headers: {
-                'Authorization': `Bearer ${accessToken}`
-            }
-        });
-        
-        if (!response.ok) throw new Error('Falha ao verificar curtida');
-        
-        const [isLiked] = await response.json();
-        
-        // Fazer a operação oposta
-        const method = isLiked ? 'DELETE' : 'PUT';
-        const actionResponse = await fetch(`https://api.spotify.com/v1/me/tracks?ids=${trackId}`, {
-            method,
-            headers: {
-                'Authorization': `Bearer ${accessToken}`
-            }
-        });
-        
-        if (!actionResponse.ok) throw new Error('Falha ao curtir/descurtir');
-        
-        // Atualizar a UI
-        element.classList.toggle('liked', !isLiked);
-        element.innerHTML = !isLiked ? '❤️' : '🤍';
-        
-        showNotification(isLiked ? 'Curtida removida' : 'Música curtida!');
-        
-    } catch (error) {
-        console.error('Erro ao curtir/descurtir:', error);
-        showNotification('Erro ao curtir/descurtir música');
-    }
-}
-
-async function checkIfLiked(trackId, element) {
-    try {
-        const response = await fetch(`https://api.spotify.com/v1/me/tracks/contains?ids=${trackId}`, {
-            headers: {
-                'Authorization': `Bearer ${accessToken}`
-            }
-        });
-        
-        if (!response.ok) throw new Error('Falha ao verificar curtida');
-        
-        const [isLiked] = await response.json();
-        
-        // Atualizar a UI
-        element.classList.toggle('liked', isLiked);
-        element.innerHTML = isLiked ? '❤️' : '🤍';
-        
-    } catch (error) {
-        console.error('Erro ao verificar curtida:', error);
-    }
-}
-
-async function loadPlaylistTracks() {
-    if (!currentPlaylistId) return;
-    
-    try {
-        playlistLoader.style.display = 'block';
-        playlistContainer.innerHTML = '';
-        
-        const response = await fetch(`https://api.spotify.com/v1/playlists/${currentPlaylistId}/tracks`, {
-            headers: {
-                'Authorization': `Bearer ${accessToken}`
-            }
-        });
-        
-        if (!response.ok) throw new Error('Falha ao carregar playlist');
-        
-        const data = await response.json();
-        playlistTracks = data.items.map(item => item.track);
-        
-        if (playlistTracks.length === 0) {
-            playlistContainer.innerHTML = '<p>Nenhuma música na playlist ainda. Adicione músicas pela pesquisa!</p>';
-            return;
-        }
-        
-        // Renderizar cada música
-        playlistTracks.forEach(track => {
-            renderTrackCard(track, playlistContainer, false);
-        });
-        
-    } catch (error) {
-        console.error('Erro ao carregar playlist:', error);
-        showNotification('Erro ao carregar playlist');
-    } finally {
-        playlistLoader.style.display = 'none';
-    }
-}
-
-// Função para lidar com reprodução de prévias
-function handlePlayPreview(button, previewUrl) {
-    // Se não houver URL de prévia disponível
-    if (!previewUrl || previewUrl === "null" || previewUrl === "") {
-        showNotification('Prévia não disponível para esta música');
-        return;
-    }
-    
-    // Se já houver um áudio tocando
-    if (audioElement) {
-        // Pausar o áudio atual
-        audioElement.pause();
-        
-        // Resetar o botão que estava tocando
-        if (playingButtonElement) {
-            playingButtonElement.textContent = '▶️';
-        }
-        
-        // Se for o mesmo botão que já estava tocando, só parar
-        if (playingButtonElement === button) {
-            playingButtonElement = null;
-            audioElement = null;
-            return;
-        }
-    }
-    
-    // Criar novo elemento de áudio
-    audioElement = new Audio(previewUrl);
-    
-    // Reproduzir o áudio
-    audioElement.play()
-        .then(() => {
-            // Atualizar o botão atual após começar a tocar
-            button.textContent = '⏸️';
-            playingButtonElement = button;
-        })
-        .catch(error => {
-            console.error('Erro ao reproduzir áudio:', error);
-            button.textContent = '▶️';
-            showNotification('Erro ao reproduzir prévia. Verifique se o bloqueador de pop-ups está desativado.');
-            audioElement = null;
-        });
-    
-    // Quando terminar de tocar
-    audioElement.addEventListener('ended', () => {
-        if (playingButtonElement) {
-            playingButtonElement.textContent = '▶️';
-            playingButtonElement = null;
-        }
-        audioElement = null;
-    });
-    
-    // Quando for pausado
-    audioElement.addEventListener('pause', () => {
-        if (playingButtonElement) {
-            playingButtonElement.textContent = '▶️';
-        }
-    });
-}
-
-// Funções de renderização
-function renderTrackCard(track, container, isSearchResult) {
-    const card = document.createElement('div');
-    card.className = 'track-card';
-    
-    // Verificar se a prévia existe e não é null/undefined/vazia
-    const hasPreview = track.preview_url && track.preview_url !== "null" && track.preview_url !== "";
-    
-    const imageUrl = track.album.images[0]?.url || '/api/placeholder/200/200';
-    
-    card.innerHTML = `
-        <img src="${imageUrl}" alt="${track.name}" class="track-img">
-        <div class="track-info">
-            <div class="track-title">${track.name}</div>
-            <div class="track-artist">${track.artists.map(a => a.name).join(', ')}</div>
-            <div class="track-actions">
-                <button class="btn-icon play-preview" data-preview="${track.preview_url || ''}">
-                    ${hasPreview ? '▶️' : '🔇'}
-                </button>
-                <button class="btn-icon like-button" data-id="${track.id}">🤍</button>
-                ${isSearchResult ? 
-                    `<button class="btn-icon add-to-playlist" data-id="${track.id}">➕</button>` : 
-                    `<button class="btn-icon remove-from-playlist" data-id="${track.id}">➖</button>`
-                }
-            </div>
-        </div>
-    `;
-    
-    container.appendChild(card);
-    
-    // Adicionar event listeners
-    const playButton = card.querySelector('.play-preview');
-    playButton.addEventListener('click', () => {
-        const previewUrl = playButton.getAttribute('data-preview');
-        handlePlayPreview(playButton, previewUrl);
-    });
-    
-    const likeButton = card.querySelector('.like-button');
-    // Verificar se a música já está curtida
-    checkIfLiked(track.id, likeButton);
-    
-    likeButton.addEventListener('click', () => {
-        toggleLike(track.id, likeButton);
-    });
-    
-    if (isSearchResult) {
-        const addButton = card.querySelector('.add-to-playlist');
-        addButton.addEventListener('click', () => {
-            addToPlaylist(track.id);
-        });
-    } else {
-        const removeButton = card.querySelector('.remove-from-playlist');
-        removeButton.addEventListener('click', () => {
-            removeFromPlaylist(track.id);
-        });
-    }
-}
-
-// Iniciar a aplicação
-init();
+// Initialize the application
+const app = new App();

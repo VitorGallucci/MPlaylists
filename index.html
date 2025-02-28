@@ -5,6 +5,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>M Playlists</title>
     <link rel="stylesheet" href="styles.css">
+    <!-- Favicon -->
+    <link rel="icon" href="favicon.ico" type="image/x-icon">
+    <!-- Error boundary script -->
+    <script>
+        window.addEventListener('error', function(e) {
+            console.error('Global error caught:', e.error);
+            // Show error notification if possible
+            const notification = document.getElementById('notification');
+            if (notification) {
+                notification.textContent = "Ocorreu um erro. Tente recarregar a página.";
+                notification.classList.add('show');
+                setTimeout(() => notification.classList.remove('show'), 5000);
+            }
+            return false;
+        });
+    </script>
 </head>
 <body>
     <header>
@@ -14,47 +30,46 @@
     <div id="login-container">
         <h1>Conecte-se ao Spotify</h1>
         <p>Pesquise músicas, ouça prévias, crie playlists e dê likes nas suas músicas favoritas.</p>
-        <button id="login-button">Conectar ao Spotify</button>
+        <button id="login-button" aria-label="Conectar ao Spotify">Conectar ao Spotify</button>
     </div>
     
     <div id="app-container">
-        <div id="user-info"></div>
+        <div id="user-info" aria-live="polite"></div>
         
-        <div class="tabs">
-            <button class="tab active" data-tab="search">Pesquisar</button>
-            <button class="tab" data-tab="playlist">Minha Playlist</button>
+        <div class="tabs" role="tablist">
+            <button class="tab active" data-tab="search" role="tab" aria-selected="true" aria-controls="search-tab">Pesquisar</button>
+            <button class="tab" data-tab="playlist" role="tab" aria-selected="false" aria-controls="playlist-tab">Minha Playlist</button>
         </div>
         
-        <div id="search-tab" class="tab-content active">
+        <div id="search-tab" class="tab-content active" role="tabpanel" aria-labelledby="search-tab">
             <div class="search-container">
-                <input type="text" id="search-input" placeholder="Pesquisar músicas...">
-                <button id="search-button">Buscar</button>
+                <input type="text" id="search-input" placeholder="Pesquisar músicas..." aria-label="Pesquisar músicas">
+                <button id="search-button" aria-label="Buscar">Buscar</button>
             </div>
             
-            <div class="loader" id="search-loader"></div>
+            <div class="loader" id="search-loader" aria-hidden="true"></div>
             
-            <div class="search-results" id="search-results"></div>
+            <div class="search-results" id="search-results" aria-live="polite"></div>
         </div>
         
-        <div id="playlist-tab" class="tab-content">
-            <div id="playlist-tab" class="tab-content">
-                <div class="playlist-creation">
-                    <div class="playlist-header">
-                        <h2>Criar nova playlist</h2>
-                    </div>
-                    
-                    <div class="playlist-form">
-                        <input type="text" id="playlist-name" placeholder="Nome da playlist">
-                        <input type="text" id="playlist-description" placeholder="Descrição (opcional)">
-                        <button id="create-playlist-button">Criar Playlist</button>
-                    </div>
+        <div id="playlist-tab" class="tab-content" role="tabpanel" aria-labelledby="playlist-tab">
+            <div class="playlist-creation">
+                <div class="playlist-header">
+                    <h2>Criar nova playlist</h2>
                 </div>
                 
-                <h2 class="section-title">Suas Playlists</h2>
-                <div class="loader" id="playlist-loader"></div>
-                <div id="playlists-list" class="playlists-list"></div>
-                
-                <div id="current-playlist-info" class="current-playlist-info"></div>
+                <div class="playlist-form">
+                    <input type="text" id="playlist-name" placeholder="Nome da playlist" aria-label="Nome da playlist">
+                    <input type="text" id="playlist-description" placeholder="Descrição (opcional)" aria-label="Descrição da playlist">
+                    <button id="create-playlist-button" aria-label="Criar Playlist">Criar Playlist</button>
+                </div>
+            </div>
+            
+            <h2 class="section-title">Suas Playlists</h2>
+            <div class="loader" id="playlist-loader" aria-hidden="true"></div>
+            <div id="playlists-list" class="playlists-list" aria-live="polite"></div>
+            
+            <div id="current-playlist-info" class="current-playlist-info" aria-live="polite"></div>
                 
                 <div id="playlist-tracks-section" style="display: none;">
                     <h3 class="section-title">Músicas na Playlist</h3>
