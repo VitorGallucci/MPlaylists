@@ -246,10 +246,10 @@ class UIController {
         const { elements } = this;
         
         // Using optional chaining and fallback for image URL
-        const imageUrl = user.images[0]?.url || './assets/default-user.png';
+        const imageUrl = user.images[0]?.url || 'Avatar_icon_green.svg.png';
         
         elements.userInfoContainer.innerHTML = `
-            <img id="user-avatar" src="${imageUrl}" alt="Avatar" onerror="this.src='./assets/default-user.png';">
+            <img id="user-avatar" src="${imageUrl}" alt="Avatar" onerror="this.src='Avatar_icon_green.svg.png';">
             <span id="user-name">${user.display_name}</span>
         `;
     }
