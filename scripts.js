@@ -102,6 +102,8 @@ function init() {
             // Se a aba de playlist for selecionada, recarregar playlists
             if (tabId === 'playlist' && accessToken) {
                 loadUserPlaylists();
+                // Garantir que a seção de criação esteja visível
+                document.querySelector('.playlist-creation').style.display = 'block';
             }
         });
     });
@@ -186,6 +188,14 @@ async function fetchUserProfile() {
 
 async function loadUserPlaylists() {
     try {
+        // Verificar se o token existe
+        if (!accessToken) {
+            console.error('Token de acesso não encontrado');
+            showNotification('Erro de autenticação. Por favor, faça login novamente.');
+            logout();
+            return;
+        }
+        
         playlistLoader.style.display = 'block';
         
         const response = await fetch('https://api.spotify.com/v1/me/playlists?limit=50', {
@@ -194,7 +204,15 @@ async function loadUserPlaylists() {
             }
         });
         
-        if (!response.ok) throw new Error('Falha ao carregar playlists');
+        if (!response.ok) {
+            if (response.status === 401) {
+                // Token expirado
+                showNotification('Sessão expirada. Por favor, faça login novamente.');
+                logout();
+                return;
+            }
+            throw new Error('Falha ao carregar playlists');
+        }
         
         const data = await response.json();
         
@@ -204,6 +222,8 @@ async function loadUserPlaylists() {
         
         if (data.items.length === 0) {
             playlistsListContainer.innerHTML = '<p>Você não tem nenhuma playlist ainda.</p>';
+            // Garantir que a seção de criação esteja visível
+            document.querySelector('.playlist-creation').style.display = 'block';
             return;
         }
         
@@ -506,13 +526,14 @@ async function loadPlaylistTracks() {
 
 // Função para lidar com reprodução de prévias
 function handlePlayPreview(button, previewUrl) {
-    if (!previewUrl) {
+    // Se não houver URL de prévia disponível
+    if (!previewUrl || previewUrl === "null" || previewUrl === "") {
         showNotification('Prévia não disponível para esta música');
         return;
     }
     
-    // Se houver um áudio tocando
-    if (audioElement && !audioElement.paused) {
+    // Se já houver um áudio tocando
+    if (audioElement) {
         // Pausar o áudio atual
         audioElement.pause();
         
@@ -524,6 +545,7 @@ function handlePlayPreview(button, previewUrl) {
         // Se for o mesmo botão que já estava tocando, só parar
         if (playingButtonElement === button) {
             playingButtonElement = null;
+            audioElement = null;
             return;
         }
     }
@@ -531,16 +553,19 @@ function handlePlayPreview(button, previewUrl) {
     // Criar novo elemento de áudio
     audioElement = new Audio(previewUrl);
     
-    // Atualizar o botão atual
-    button.textContent = '⏸️';
-    playingButtonElement = button;
-    
     // Reproduzir o áudio
-    audioElement.play().catch(error => {
-        console.error('Erro ao reproduzir áudio:', error);
-        button.textContent = '▶️';
-        showNotification('Erro ao reproduzir prévia');
-    });
+    audioElement.play()
+        .then(() => {
+            // Atualizar o botão atual após começar a tocar
+            button.textContent = '⏸️';
+            playingButtonElement = button;
+        })
+        .catch(error => {
+            console.error('Erro ao reproduzir áudio:', error);
+            button.textContent = '▶️';
+            showNotification('Erro ao reproduzir prévia. Verifique se o bloqueador de pop-ups está desativado.');
+            audioElement = null;
+        });
     
     // Quando terminar de tocar
     audioElement.addEventListener('ended', () => {
@@ -548,6 +573,7 @@ function handlePlayPreview(button, previewUrl) {
             playingButtonElement.textContent = '▶️';
             playingButtonElement = null;
         }
+        audioElement = null;
     });
     
     // Quando for pausado
@@ -563,6 +589,9 @@ function renderTrackCard(track, container, isSearchResult) {
     const card = document.createElement('div');
     card.className = 'track-card';
     
+    // Verificar se a prévia existe e não é null/undefined/vazia
+    const hasPreview = track.preview_url && track.preview_url !== "null" && track.preview_url !== "";
+    
     const imageUrl = track.album.images[0]?.url || '/api/placeholder/200/200';
     
     card.innerHTML = `
@@ -572,7 +601,7 @@ function renderTrackCard(track, container, isSearchResult) {
             <div class="track-artist">${track.artists.map(a => a.name).join(', ')}</div>
             <div class="track-actions">
                 <button class="btn-icon play-preview" data-preview="${track.preview_url || ''}">
-                    ${track.preview_url ? '▶️' : '🔇'}
+                    ${hasPreview ? '▶️' : '🔇'}
                 </button>
                 <button class="btn-icon like-button" data-id="${track.id}">🤍</button>
                 ${isSearchResult ? 
