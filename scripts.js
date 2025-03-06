@@ -737,16 +737,13 @@ class App {
             const track = await this.getTrackData(trackId);
             
             // Verificar se a faixa tem uma prévia disponível
-            // Se não tiver, usar uma amostra padrão
-            const previewUrl = track.preview_url || 'https://p.scdn.co/mp3-preview/2f37da1d4221f40b9d1a98cd191f4d6f1646ad17';
-            
-            if (!previewUrl) {
-                this.ui.showNotification('Prévia não disponível para esta faixa');
+            if (!track.preview_url) {
+                this.ui.showNotification('Prévia não disponível para esta música');
                 return;
             }
             
             // Criar um novo elemento de áudio
-            const audio = new Audio(previewUrl);
+            const audio = new Audio(track.preview_url);
             
             // Configurar manipuladores de eventos
             audio.addEventListener('ended', () => {
@@ -766,7 +763,7 @@ class App {
             
             audio.addEventListener('error', (e) => {
                 console.error('Erro de áudio:', e);
-                this.ui.showNotification('Erro ao reproduzir a prévia da faixa');
+                this.ui.showNotification('Erro ao reproduzir a prévia da música');
                 button.textContent = '▶️';
             });
             
@@ -793,7 +790,7 @@ class App {
             
         } catch (error) {
             console.error('Erro ao buscar dados da faixa:', error);
-            this.ui.showNotification('Erro ao buscar dados da faixa');
+            this.ui.showNotification('Erro ao buscar dados da música');
         }
     }
     
