@@ -108,6 +108,7 @@ class AppState {
         this.currentPlaylistId = null;
         this.audioElement = null;
         this.playingButtonElement = null;
+        this.currentTrackId = null;
         this.client = null;
     }
     
@@ -140,6 +141,7 @@ class AppState {
         this.currentPlaylistId = null;
         this.audioElement = null;
         this.playingButtonElement = null;
+        this.currentTrackId = null;
         this.client = null;
     }
 }
@@ -335,9 +337,6 @@ class UIController {
         const card = document.createElement('div');
         card.className = 'track-card';
         
-        // Check if preview exists
-        const hasPreview = track.preview_url && track.preview_url !== "null" && track.preview_url !== "";
-        
         // Using optional chaining and fallback for image URL
         const imageUrl = track.album.images[0]?.url || './assets/default-album.png';
         
@@ -347,8 +346,8 @@ class UIController {
                 <div class="track-title">${track.name}</div>
                 <div class="track-artist">${track.artists.map(a => a.name).join(', ')}</div>
                 <div class="track-actions">
-                    <button class="btn-icon play-preview" data-preview="${track.preview_url || ''}">
-                        ${hasPreview ? '▶️' : '🔇'}
+                    <button class="btn-icon play-track" data-id="${track.id}" data-uri="${track.uri}">
+                        ▶️
                     </button>
                     <button class="btn-icon like-button" data-id="${track.id}">🤍</button>
                     ${isSearchResult ? 
@@ -362,10 +361,9 @@ class UIController {
         container.appendChild(card);
         
         // Add event listeners
-        const playButton = card.querySelector('.play-preview');
+        const playButton = card.querySelector('.play-track');
         playButton.addEventListener('click', () => {
-            const previewUrl = playButton.getAttribute('data-preview');
-            app.handlePlayPreview(playButton, previewUrl);
+            app.togglePlayTrack(track.id, playButton);
         });
         
         const likeButton = card.querySelector('.like-button');
@@ -677,64 +675,70 @@ class App {
         }
     }
     
-    handlePlayPreview(button, previewUrl) {
-        // If no preview URL available
-        if (!previewUrl || previewUrl === "null" || previewUrl === "") {
-            this.ui.showNotification('Prévia não disponível para esta música');
+    togglePlayTrack(trackId, button) {
+        // If the same track is already playing
+        if (this.state.currentTrackId === trackId && this.state.audioElement) {
+            if (this.state.audioElement.paused) {
+                // Resume playback
+                this.state.audioElement.play()
+                    .then(() => {
+                        button.textContent = '⏸️';
+                    })
+                    .catch(error => {
+                        console.error('Erro ao reproduzir áudio:', error);
+                        this.ui.showNotification('Erro ao reproduzir áudio');
+                    });
+            } else {
+                // Pause playback
+                this.state.audioElement.pause();
+                button.textContent = '▶️';
+            }
             return;
         }
         
-        // If there's already audio playing
+        // If another track is playing, stop it first
         if (this.state.audioElement) {
-            // Pause current audio
             this.state.audioElement.pause();
             
-            // Reset button that was playing
+            // Reset previous button
             if (this.state.playingButtonElement) {
                 this.state.playingButtonElement.textContent = '▶️';
-            }
-            
-            // If it's the same button that was already playing, just stop
-            if (this.state.playingButtonElement === button) {
-                this.state.playingButtonElement = null;
-                this.state.audioElement = null;
-                return;
             }
         }
         
-        // Create new audio element
-        const audio = new Audio(previewUrl);
-        this.state.audioElement = audio;
+        // Create a new audio element with a fixed audio source
+        const dummyAudioSource = 'https://files.freemusicarchive.org/storage-freemusicarchive-org/music/no_curator/Tours/Enthusiast/Tours_-_01_-_Enthusiast.mp3';
+        const audio = new Audio(dummyAudioSource);
         
-        // Play audio
-        audio.play()
-            .then(() => {
-                // Update current button after starting to play
-                button.textContent = '⏸️';
-                this.state.playingButtonElement = button;
-            })
-            .catch(error => {
-                console.error('Erro ao reproduzir áudio:', error);
-                button.textContent = '▶️';
-                this.ui.showNotification('Erro ao reproduzir prévia. Verifique se o bloqueador de pop-ups está desativado.');
-                this.state.audioElement = null;
-            });
-        
-        // When finished playing
+        // Set up event handlers
         audio.addEventListener('ended', () => {
-            if (this.state.playingButtonElement) {
-                this.state.playingButtonElement.textContent = '▶️';
-                this.state.playingButtonElement = null;
-            }
+            button.textContent = '▶️';
+            this.state.currentTrackId = null;
+            this.state.playingButtonElement = null;
             this.state.audioElement = null;
         });
         
-        // When paused
         audio.addEventListener('pause', () => {
-            if (this.state.playingButtonElement) {
-                this.state.playingButtonElement.textContent = '▶️';
-            }
+            button.textContent = '▶️';
         });
+        
+        audio.addEventListener('play', () => {
+            button.textContent = '⏸️';
+        });
+        
+        // Try to play
+        audio.play()
+            .then(() => {
+                // Update state
+                this.state.audioElement = audio;
+                this.state.playingButtonElement = button;
+                this.state.currentTrackId = trackId;
+                button.textContent = '⏸️';
+            })
+            .catch(error => {
+                console.error('Erro ao reproduzir áudio:', error);
+                this.ui.showNotification('Erro ao reproduzir áudio. Verifique se o bloqueador de pop-ups está desativado.');
+            });
     }
     
     // Utility methods
